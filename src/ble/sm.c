@@ -637,6 +637,7 @@ static void sm_pairing_started(sm_connection_t * sm_conn){
     if (sm_conn->sm_pairing_active) return;
 
     sm_conn->sm_pairing_active = true;
+    SM_PLATFORM_TRACE("START", sm_conn, 0);
 
     uint8_t event[11];
     sm_setup_event_base(event, sizeof(event), SM_EVENT_PAIRING_STARTED, sm_conn->sm_handle, setup->sm_peer_addr_type, setup->sm_peer_address);
@@ -2283,7 +2284,17 @@ static bool sm_run_oob(void){
     return false;
 }
 
+// Platform-only diagnostic hook. Log SMP opcodes and state, never key material.
+#ifdef HAVE_BTSTACK_SM_PLATFORM_TRACE
+extern void btstack_sm_platform_trace(const char *phase, uint16_t handle, uint16_t state, uint8_t code);
+#define SM_PLATFORM_TRACE(phase, connection, code) \
+    btstack_sm_platform_trace((phase), (connection)->sm_handle, (connection)->sm_engine_state, (code))
+#else
+#define SM_PLATFORM_TRACE(phase, connection, code) do { (void)(connection); } while (0)
+#endif
+
 static void sm_send_connectionless(sm_connection_t * sm_connection, const uint8_t * buffer, uint16_t size){
+    SM_PLATFORM_TRACE("TX", sm_connection, size ? buffer[0] : 0);
     l2cap_send_connectionless(sm_connection->sm_handle, sm_connection->sm_cid, (uint8_t*) buffer, size);
 }
 
@@ -4236,6 +4247,8 @@ static void sm_pdu_handler(uint8_t packet_type, hci_con_handle_t con_handle, uin
     sm_connection_t * sm_conn = sm_get_connection_for_handle(con_handle);
     if (!sm_conn) return;
 
+    SM_PLATFORM_TRACE("RX", sm_conn, sm_pdu_code);
+
     if (sm_pdu_code == SM_CODE_PAIRING_FAILED){
         sm_reencryption_complete(sm_conn, ERROR_CODE_AUTHENTICATION_FAILURE);
         sm_pairing_complete(sm_conn, ERROR_CODE_AUTHENTICATION_FAILURE, packet[1]);
@@ -4999,6 +5012,7 @@ void sm_send_security_request(hci_con_handle_t con_handle){
 void sm_request_pairing(hci_con_handle_t con_handle){
     sm_connection_t * sm_conn = sm_get_connection_for_handle(con_handle);
     if (!sm_conn) return;     // wrong connection
+    SM_PLATFORM_TRACE("REQUEST", sm_conn, (uint8_t)sm_conn->sm_irk_lookup_state);
 
     bool have_ltk;
     uint8_t ltk[16];
