@@ -49,6 +49,16 @@
 #include "btstack_config.h"
 
 #include "ble/att_dispatch.h"
+
+// Optional platform diagnostic: ATT headers and error codes only; never values.
+#ifdef HAVE_BTSTACK_ATT_PLATFORM_TRACE
+extern void btstack_att_platform_trace(const char *phase, uint16_t handle, uint8_t opcode, uint16_t length, uint8_t error);
+#define ATT_PLATFORM_TRACE(phase, handle, opcode, length, error) \
+    btstack_att_platform_trace((phase), (handle), (opcode), (length), (error))
+#else
+#define ATT_PLATFORM_TRACE(phase, handle, opcode, length, error) do {} while (0)
+#endif
+
 #include "ble/att_db.h"
 #include "ble/att_server.h"
 #include "ble/core.h"
@@ -541,6 +551,15 @@ static int att_server_process_validated_request(hci_connection_t * hci_connectio
     l2cap_reserve_packet_buffer();
     uint8_t * att_response_buffer = l2cap_get_outgoing_buffer();
     uint16_t  att_response_size   = att_handle_request(att_connection, att_server->request_buffer, att_server->request_size, att_response_buffer);
+    // Record response metadata before the L2CAP send reuses its packet buffer.
+    if (att_response_size && att_response_size <= att_connection->mtu) {
+        uint8_t response_error = (att_response_buffer[0] == ATT_ERROR_RESPONSE && att_response_size >= 5)
+            ? att_response_buffer[4] : 0;
+        ATT_PLATFORM_TRACE("TX", att_connection->con_handle, att_response_buffer[0], att_response_size, response_error);
+    } else {
+        ATT_PLATFORM_TRACE("TX-NONE", att_connection->con_handle,
+            att_server->request_buffer[0], att_response_size, 0);
+    }
 
 #ifdef ENABLE_ATT_DELAYED_RESPONSE
     if ((att_response_size == ATT_READ_RESPONSE_PENDING) || (att_response_size == ATT_INTERNAL_WRITE_RESPONSE_PENDING)){
@@ -798,6 +817,9 @@ static void att_server_handle_att_pdu(hci_connection_t * hci_connection, uint8_t
     att_connection_t * att_connection = &hci_connection->att_connection;
 
     uint8_t opcode  = packet[0u];
+    // Includes discovery requests handled internally by att_db.c, not only
+    // MicroPython dynamic-attribute callbacks.
+    ATT_PLATFORM_TRACE("RX", att_connection->con_handle, opcode, size, 0);
     uint8_t method  = opcode & 0x03fu;
     bool invalid = method > ATT_MULTIPLE_HANDLE_VALUE_NTF;
     bool command = (opcode & 0x40u) != 0u;
