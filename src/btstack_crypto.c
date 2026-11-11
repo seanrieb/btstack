@@ -1175,7 +1175,22 @@ static void btstack_crypto_event_handler(uint8_t packet_type, uint16_t cid, uint
 	btstack_crypto_run();    
 }
 
+// Port-provided cryptographic randomness. Platform implementations must use
+// a properly seeded CSPRNG or conditioned TRNG; never use a generic PRNG.
+#ifdef HAVE_BTSTACK_CRYPTO_PLATFORM_RANDOM
+extern bool btstack_crypto_platform_random_generate(uint8_t *buffer, uint16_t size);
+#endif
+
 void btstack_crypto_random_generate(btstack_crypto_random_t * request, uint8_t * buffer, uint16_t size, void (* callback)(void * arg), void * callback_arg){
+#ifdef HAVE_BTSTACK_CRYPTO_PLATFORM_RANDOM
+    (void)request;
+    if (!btstack_crypto_platform_random_generate(buffer, size)) {
+        // Fail closed instead of silently weakening BLE pairing.
+        btstack_assert(false);
+        return;
+    }
+    callback(callback_arg);
+#else
 	request->btstack_crypto.context_callback.callback  = callback;
 	request->btstack_crypto.context_callback.context   = callback_arg;
 	request->btstack_crypto.operation         		   = BTSTACK_CRYPTO_RANDOM;
@@ -1183,6 +1198,7 @@ void btstack_crypto_random_generate(btstack_crypto_random_t * request, uint8_t *
 	request->size   = size;
 	btstack_linked_list_add_tail(&btstack_crypto_operations, (btstack_linked_item_t*) request);
 	btstack_crypto_run();
+#endif
 }
 
 void btstack_crypto_aes128_encrypt(btstack_crypto_aes128_t * request, const uint8_t * key, const uint8_t * plaintext, uint8_t * ciphertext, void (* callback)(void * arg), void * callback_arg){
