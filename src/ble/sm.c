@@ -56,6 +56,15 @@
 #include "hci_dump.h"
 #include "l2cap.h"
 
+// Platform-only diagnostic hook. Log SMP opcodes and state, never key material.
+#ifdef HAVE_BTSTACK_SM_PLATFORM_TRACE
+extern void btstack_sm_platform_trace(const char *phase, uint16_t handle, uint16_t state, uint8_t code);
+#define SM_PLATFORM_TRACE(phase, connection, code) \
+    btstack_sm_platform_trace((phase), (connection)->sm_handle, (connection)->sm_engine_state, (code))
+#else
+#define SM_PLATFORM_TRACE(phase, connection, code) do { (void)(connection); } while (0)
+#endif
+
 #if !defined(ENABLE_LE_PERIPHERAL) && !defined(ENABLE_LE_CENTRAL)
 #error "LE Security Manager used, but neither ENABLE_LE_PERIPHERAL nor ENABLE_LE_CENTRAL defined. Please add at least one to btstack_config.h."
 #endif
@@ -2283,15 +2292,6 @@ static bool sm_run_oob(void){
 #endif
     return false;
 }
-
-// Platform-only diagnostic hook. Log SMP opcodes and state, never key material.
-#ifdef HAVE_BTSTACK_SM_PLATFORM_TRACE
-extern void btstack_sm_platform_trace(const char *phase, uint16_t handle, uint16_t state, uint8_t code);
-#define SM_PLATFORM_TRACE(phase, connection, code) \
-    btstack_sm_platform_trace((phase), (connection)->sm_handle, (connection)->sm_engine_state, (code))
-#else
-#define SM_PLATFORM_TRACE(phase, connection, code) do { (void)(connection); } while (0)
-#endif
 
 static void sm_send_connectionless(sm_connection_t * sm_connection, const uint8_t * buffer, uint16_t size){
     SM_PLATFORM_TRACE("TX", sm_connection, size ? buffer[0] : 0);
