@@ -79,6 +79,9 @@ void sm_set_er(sm_key_t er);
  */
 void sm_set_ir(sm_key_t ir);
 
+// True when both derived keys correspond to the latest IR.
+bool sm_derived_keys_ready(void);
+
 /**
  * @brief Registers OOB Data Callback. The callback should set the oob_data and return 1 if OOB data is availble
  * @param get_oob_data_callback

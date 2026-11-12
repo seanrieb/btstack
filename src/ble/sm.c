@@ -230,6 +230,8 @@ static sm_key_t sm_persistent_ir;
 static sm_key_t sm_persistent_dhk;
 static sm_key_t sm_persistent_irk;
 static derived_key_generation_t dkg_state;
+// A changed IR invalidates in-flight key derivations until restarted.
+static bool sm_dkg_restart_required;
 
 // derived from sm_persistent_er
 // ..
@@ -2151,6 +2153,8 @@ static bool sm_run_dpkg(void){
                 // IRK = d1(IR, 1, 0)
                 sm_d1_d_prime(1, 0, sm_aes128_plaintext);  // plaintext = d1 prime
                 sm_aes128_state = SM_AES128_ACTIVE;
+                // A later IR update will set this again; its callback restarts.
+                sm_dkg_restart_required = false;
                 btstack_crypto_aes128_encrypt(&sm_crypto_aes128_request, sm_persistent_ir, sm_aes128_plaintext, sm_persistent_irk, sm_handle_encryption_result_dkg_irk, NULL);
                 return true;
             }
@@ -3502,7 +3506,7 @@ static void sm_handle_encryption_result_dkg_irk(void *arg){
     sm_aes128_state = SM_AES128_IDLE;
 
     log_info_key("irk", sm_persistent_irk);
-    dkg_state = DKG_CALC_DHK;
+    dkg_state = sm_dkg_restart_required ? DKG_CALC_IRK : DKG_CALC_DHK;
     sm_trigger_run();
 }
 
@@ -3511,7 +3515,7 @@ static void sm_handle_encryption_result_dkg_dhk(void *arg){
     sm_aes128_state = SM_AES128_IDLE;
 
     log_info_key("dhk", sm_persistent_dhk);
-    dkg_state = DKG_READY;
+    dkg_state = sm_dkg_restart_required ? DKG_CALC_IRK : DKG_READY;
     sm_trigger_run();
 }
 
@@ -4861,7 +4865,18 @@ void sm_set_er(sm_key_t er){
 }
 
 void sm_set_ir(sm_key_t ir){
+    if (memcmp(sm_persistent_ir, ir, 16) == 0) return;
     (void)memcpy(sm_persistent_ir, ir, 16);
+    // Finish any outstanding AES request, then derive both keys from IR.
+    if (sm_initialized && hci_get_state() == HCI_STATE_WORKING){
+        sm_dkg_restart_required = true;
+        dkg_state = DKG_CALC_IRK;
+        sm_trigger_run();
+    }
+}
+
+bool sm_derived_keys_ready(void){
+    return dkg_state == DKG_READY && !sm_dkg_restart_required;
 }
 
 // Testing support only
